@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production=false
+# Install ALL dependencies (including devDependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -15,7 +15,7 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Expose port (Railway will set PORT env var)
+# Expose port
 EXPOSE 3000
 
 # Start the server

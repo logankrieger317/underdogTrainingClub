@@ -1,31 +1,9 @@
 [build]
-builder = "nixpacks"
-buildCommand = "npm run build"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node server/dist/index.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-
-[[services]]
-name = "frontend"
-port = 3000
-
-[services.build]
-buildCommand = "npm run build:frontend"
-
-[services.deploy]
-startCommand = "npm run preview"
-
-[[services]]
-name = "api"
-port = 3001
-
-[services.build]
-buildCommand = "npm run build:server"
-
-[services.deploy]
-startCommand = "npm run start:server"
-healthcheckPath = "/health"
