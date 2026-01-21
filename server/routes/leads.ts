@@ -4,7 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 // In-memory storage (replace with database in production)
-let leads: any[] = [
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const leads: any[] = [
   {
     id: '1',
     firstName: 'Sarah',
@@ -38,6 +39,7 @@ router.get('/', (req: Request, res: Response) => {
       lead.firstName.toLowerCase().includes(searchLower) ||
       lead.lastName.toLowerCase().includes(searchLower) ||
       lead.email.toLowerCase().includes(searchLower) ||
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       lead.dogs.some((dog: any) => dog.name.toLowerCase().includes(searchLower))
     );
   }

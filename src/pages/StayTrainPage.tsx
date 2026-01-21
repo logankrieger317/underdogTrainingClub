@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Calendar, Home, CheckCircle, ArrowRight } from 'lucide-react';
+import { Calendar, CheckCircle, ArrowRight } from 'lucide-react';
 
 export function StayTrainPage() {
   return (

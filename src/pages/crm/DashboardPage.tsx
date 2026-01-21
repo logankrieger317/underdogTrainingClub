@@ -76,7 +76,7 @@ const mockRecentLeads = [
 ];
 
 export function DashboardPage() {
-  const { stats, setStats } = useLeadStore();
+  const { setStats } = useLeadStore();
 
   useEffect(() => {
     // In production, this would fetch from the API

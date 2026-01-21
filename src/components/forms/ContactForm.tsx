@@ -64,7 +64,7 @@ export function ContactForm({ variant = 'full', onSuccess }: ContactFormProps) {
       setSubmitStatus('success');
       setFormData(initialFormData);
       onSuccess?.();
-    } catch (error) {
+    } catch {
       setSubmitStatus('error');
       setErrorMessage('Something went wrong. Please try again or call us directly.');
     } finally {

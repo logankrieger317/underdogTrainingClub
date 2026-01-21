@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Phone, ChevronDown } from 'lucide-react';
+import { Menu, X, Phone } from 'lucide-react';
 
 const navigation = [
   { name: 'Start Here', href: '/start-here' },

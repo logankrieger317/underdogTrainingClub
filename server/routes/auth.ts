@@ -54,6 +54,7 @@ router.post('/login', (req: Request, res: Response) => {
   const token = uuidv4();
   sessions[token] = user.id;
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { password: _, ...userWithoutPassword } = user;
 
   res.json({
@@ -114,6 +115,7 @@ router.get('/me', (req: Request, res: Response) => {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { password: _, ...userWithoutPassword } = user;
 
   res.json({

@@ -4,7 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 // In-memory storage reference (would be shared with leads in production via database)
-let leads: any[] = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const leads: any[] = [];
 
 // POST /api/contact - Submit contact form (public endpoint)
 router.post('/', async (req: Request, res: Response) => {

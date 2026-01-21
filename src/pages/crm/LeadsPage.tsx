@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { 
-  Search, Filter, Plus, MoreVertical, Phone, Mail, 
+  Search, Plus, Phone, Mail, 
   ChevronDown, Eye, Edit, Trash2, ArrowUpDown
 } from 'lucide-react';
 import { Lead, LeadStatus } from '../../types';
@@ -107,9 +107,8 @@ export function LeadsPage() {
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>(
     (searchParams.get('status') as LeadStatus) || 'all'
   );
-  const [showDropdown, setShowDropdown] = useState<string | null>(null);
   
-  const { leads, setLeads, setFilters, getFilteredLeads } = useLeadStore();
+  const { setLeads, setFilters, getFilteredLeads } = useLeadStore();
 
   useEffect(() => {
     // In production, fetch from API
