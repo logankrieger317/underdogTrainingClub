@@ -9,8 +9,12 @@ import leadRoutes from './routes/leads.js';
 import contactRoutes from './routes/contact.js';
 import dashboardRoutes from './routes/dashboard.js';
 import authRoutes from './routes/auth.js';
+import { initializeDatabase } from './db/init.js';
 
 config();
+
+// Initialize database
+initializeDatabase().catch(console.error);
 
 const app = express();
 const PORT = process.env.PORT || 3001;

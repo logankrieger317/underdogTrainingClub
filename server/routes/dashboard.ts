@@ -1,126 +1,114 @@
 import { Router, Request, Response } from 'express';
+import pool from '../db/index.js';
 
 const router = Router();
 
 // GET /api/dashboard/stats - Get dashboard statistics
-router.get('/stats', (req: Request, res: Response) => {
-  // In production, these would be calculated from the database
-  const stats = {
-    totalLeads: 127,
-    newLeadsThisWeek: 12,
-    activeTraining: 23,
-    completedThisMonth: 8,
-    conversionRate: 68,
-    leadsByStatus: {
-      new: 15,
-      contacted: 8,
-      consultation_scheduled: 12,
-      consultation_completed: 7,
-      proposal_sent: 5,
-      enrolled: 18,
-      in_training: 23,
-      training_completed: 32,
-      follow_up: 4,
-      lost: 3,
-    },
-    leadsBySource: {
-      website_form: 45,
-      phone: 28,
-      referral: 32,
-      social_media: 15,
-      walk_in: 5,
-      other: 2,
-    },
-    recentActivity: [
-      {
-        id: '1',
-        type: 'status_change',
-        description: 'Sarah Johnson moved to "Enrolled"',
-        createdAt: new Date().toISOString(),
-        createdBy: 'John Smith',
-      },
-      {
-        id: '2',
-        type: 'note_added',
-        description: 'Note added to Mike Davis',
-        createdAt: new Date(Date.now() - 3600000).toISOString(),
-        createdBy: 'Jane Doe',
-      },
-      {
-        id: '3',
-        type: 'session_completed',
-        description: 'Training session completed for Emily Chen',
-        createdAt: new Date(Date.now() - 7200000).toISOString(),
-        createdBy: 'John Smith',
-      },
-    ],
-  };
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    // Get total leads
+    const totalResult = await pool.query('SELECT COUNT(*) FROM leads');
+    const totalLeads = parseInt(totalResult.rows[0].count);
 
-  res.json({ success: true, data: stats });
+    // Get leads by status
+    const statusResult = await pool.query(`
+      SELECT status, COUNT(*) as count 
+      FROM leads 
+      GROUP BY status
+    `);
+
+    const statusCounts: Record<string, number> = {};
+    statusResult.rows.forEach(row => {
+      statusCounts[row.status] = parseInt(row.count);
+    });
+
+    // Get new leads this week
+    const weekResult = await pool.query(`
+      SELECT COUNT(*) FROM leads 
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+    `);
+    const newThisWeek = parseInt(weekResult.rows[0].count);
+
+    // Get new leads this month
+    const monthResult = await pool.query(`
+      SELECT COUNT(*) FROM leads 
+      WHERE created_at >= NOW() - INTERVAL '30 days'
+    `);
+    const newThisMonth = parseInt(monthResult.rows[0].count);
+
+    // Calculate conversion rate (leads that became active_client)
+    const activeClients = statusCounts['active_client'] || 0;
+    const conversionRate = totalLeads > 0 ? Math.round((activeClients / totalLeads) * 100) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalLeads,
+        newThisWeek,
+        newThisMonth,
+        conversionRate,
+        byStatus: {
+          new: statusCounts['new'] || 0,
+          contacted: statusCounts['contacted'] || 0,
+          consultationScheduled: statusCounts['consultation_scheduled'] || 0,
+          consultationCompleted: statusCounts['consultation_completed'] || 0,
+          proposalSent: statusCounts['proposal_sent'] || 0,
+          enrolled: statusCounts['enrolled'] || 0,
+          activeClient: statusCounts['active_client'] || 0,
+          completed: statusCounts['completed'] || 0,
+          lost: statusCounts['lost'] || 0,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Dashboard stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error',
+      message: 'Failed to fetch dashboard stats.',
+    });
+  }
 });
 
-// GET /api/dashboard/pipeline - Get pipeline data
-router.get('/pipeline', (req: Request, res: Response) => {
-  const pipeline = {
-    stages: [
-      { id: 'new', label: 'New Leads', count: 15, value: 0 },
-      { id: 'contacted', label: 'Contacted', count: 8, value: 0 },
-      { id: 'consultation', label: 'Consultation', count: 12, value: 0 },
-      { id: 'proposal', label: 'Proposal', count: 5, value: 7500 },
-      { id: 'enrolled', label: 'Enrolled', count: 18, value: 27000 },
-      { id: 'training', label: 'In Training', count: 23, value: 34500 },
-    ],
-    totalValue: 69000,
-    avgDealSize: 1500,
-  };
+// GET /api/dashboard/recent - Get recent leads
+router.get('/recent', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT l.*, 
+        COALESCE(json_agg(
+          json_build_object('id', d.id, 'name', d.name, 'breed', d.breed)
+        ) FILTER (WHERE d.id IS NOT NULL), '[]') as dogs
+      FROM leads l
+      LEFT JOIN dogs d ON l.id = d.lead_id
+      GROUP BY l.id
+      ORDER BY l.created_at DESC
+      LIMIT 10
+    `);
 
-  res.json({ success: true, data: pipeline });
-});
+    const leads = result.rows.map(row => ({
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      email: row.email,
+      phone: row.phone,
+      status: row.status,
+      program: row.program,
+      dogs: row.dogs,
+      createdAt: row.created_at,
+    }));
 
-// GET /api/dashboard/activity - Get recent activity feed
-router.get('/activity', (req: Request, res: Response) => {
-  const { limit = 20 } = req.query;
-
-  const activities = [
-    {
-      id: '1',
-      leadId: '1',
-      leadName: 'Sarah Johnson',
-      type: 'status_change',
-      description: 'Status changed to "Enrolled"',
-      createdAt: new Date().toISOString(),
-      createdBy: 'John Smith',
-    },
-    {
-      id: '2',
-      leadId: '2',
-      leadName: 'Mike Davis',
-      type: 'note_added',
-      description: 'Follow-up note added',
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      createdBy: 'Jane Doe',
-    },
-    {
-      id: '3',
-      leadId: '3',
-      leadName: 'Emily Chen',
-      type: 'session_completed',
-      description: 'Session 4 of 12 completed',
-      createdAt: new Date(Date.now() - 7200000).toISOString(),
-      createdBy: 'John Smith',
-    },
-    {
-      id: '4',
-      leadId: '4',
-      leadName: 'David Wilson',
-      type: 'email_sent',
-      description: 'Welcome email sent',
-      createdAt: new Date(Date.now() - 10800000).toISOString(),
-      createdBy: 'System',
-    },
-  ].slice(0, Number(limit));
-
-  res.json({ success: true, data: activities });
+    res.json({
+      success: true,
+      data: leads,
+    });
+  } catch (error) {
+    console.error('Recent leads error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error',
+      message: 'Failed to fetch recent leads.',
+    });
+  }
 });
 
 export default router;

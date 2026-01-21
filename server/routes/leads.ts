@@ -1,224 +1,288 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+import pool from '../db/index.js';
 
 const router = Router();
 
-// In-memory storage (replace with database in production)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const leads: any[] = [
-  {
-    id: '1',
-    firstName: 'Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.johnson@example.com',
-    phone: '512-555-1234',
-    status: 'new',
-    source: 'website_form',
-    interestedPrograms: ['puppy_power'],
-    dogs: [{ id: '1', name: 'Max', breed: 'Golden Retriever', age: 6, size: 'large' }],
-    notes: [],
-    activities: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+// GET /api/leads - Get all leads with filtering
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const { status, search, page = '1', limit = '20' } = req.query;
+    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
-// GET /api/leads - List all leads
-router.get('/', (req: Request, res: Response) => {
-  const { page = 1, pageSize = 20, status, search } = req.query;
-  
-  let filtered = [...leads];
-  
-  if (status && status !== 'all') {
-    filtered = filtered.filter(lead => lead.status === status);
-  }
-  
-  if (search) {
-    const searchLower = (search as string).toLowerCase();
-    filtered = filtered.filter(lead =>
-      lead.firstName.toLowerCase().includes(searchLower) ||
-      lead.lastName.toLowerCase().includes(searchLower) ||
-      lead.email.toLowerCase().includes(searchLower) ||
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      lead.dogs.some((dog: any) => dog.name.toLowerCase().includes(searchLower))
-    );
-  }
-  
-  const start = (Number(page) - 1) * Number(pageSize);
-  const paginated = filtered.slice(start, start + Number(pageSize));
-  
-  res.json({
-    success: true,
-    data: {
-      data: paginated,
-      total: filtered.length,
-      page: Number(page),
-      pageSize: Number(pageSize),
-      totalPages: Math.ceil(filtered.length / Number(pageSize)),
-    },
-  });
-});
+    let query = `
+      SELECT l.*, 
+        COALESCE(json_agg(
+          json_build_object('id', d.id, 'name', d.name, 'breed', d.breed, 'age', d.age, 'issues', d.issues)
+        ) FILTER (WHERE d.id IS NOT NULL), '[]') as dogs
+      FROM leads l
+      LEFT JOIN dogs d ON l.id = d.lead_id
+    `;
+    
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+    let paramIndex = 1;
 
-// GET /api/leads/:id - Get single lead
-router.get('/:id', (req: Request, res: Response) => {
-  const lead = leads.find(l => l.id === req.params.id);
-  
-  if (!lead) {
-    return res.status(404).json({
+    if (status && status !== 'all') {
+      conditions.push(`l.status = $${paramIndex}`);
+      params.push(status as string);
+      paramIndex++;
+    }
+
+    if (search) {
+      conditions.push(`(
+        l.first_name ILIKE $${paramIndex} OR 
+        l.last_name ILIKE $${paramIndex} OR 
+        l.email ILIKE $${paramIndex} OR
+        d.name ILIKE $${paramIndex}
+      )`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' GROUP BY l.id ORDER BY l.created_at DESC';
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit as string), offset);
+
+    const result = await pool.query(query, params);
+
+    // Get total count
+    let countQuery = 'SELECT COUNT(DISTINCT l.id) FROM leads l LEFT JOIN dogs d ON l.id = d.lead_id';
+    if (conditions.length > 0) {
+      countQuery += ' WHERE ' + conditions.join(' AND ');
+    }
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+    const total = parseInt(countResult.rows[0].count);
+
+    // Transform data
+    const leads = result.rows.map(row => ({
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      email: row.email,
+      phone: row.phone,
+      status: row.status,
+      source: row.source,
+      program: row.program,
+      notes: row.notes,
+      dogs: row.dogs,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+    res.json({
+      success: true,
+      data: leads,
+      pagination: {
+        page: parseInt(page as string),
+        limit: parseInt(limit as string),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit as string)),
+      },
+    });
+  } catch (error) {
+    console.error('Get leads error:', error);
+    res.status(500).json({
       success: false,
-      error: 'Lead not found',
+      error: 'Server error',
+      message: 'Failed to fetch leads.',
     });
   }
-  
-  res.json({ success: true, data: lead });
 });
 
-// POST /api/leads - Create new lead
-router.post('/', (req: Request, res: Response) => {
-  const newLead = {
-    id: uuidv4(),
-    ...req.body,
-    notes: [],
-    activities: [{
-      id: uuidv4(),
-      type: 'status_change',
-      description: 'Lead created',
-      createdAt: new Date().toISOString(),
-      createdBy: 'system',
-    }],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  
-  leads.unshift(newLead);
-  
-  res.status(201).json({
-    success: true,
-    data: newLead,
-    message: 'Lead created successfully',
-  });
+// GET /api/leads/:id - Get single lead with details
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const leadResult = await pool.query(
+      'SELECT * FROM leads WHERE id = $1',
+      [id]
+    );
+
+    if (leadResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not found',
+        message: 'Lead not found.',
+      });
+    }
+
+    const lead = leadResult.rows[0];
+
+    // Get dogs
+    const dogsResult = await pool.query(
+      'SELECT * FROM dogs WHERE lead_id = $1',
+      [id]
+    );
+
+    // Get activities
+    const activitiesResult = await pool.query(
+      `SELECT a.*, u.first_name as created_by_first_name, u.last_name as created_by_last_name
+       FROM activities a
+       LEFT JOIN users u ON a.created_by = u.id
+       WHERE a.lead_id = $1
+       ORDER BY a.created_at DESC`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: lead.id,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        status: lead.status,
+        source: lead.source,
+        program: lead.program,
+        notes: lead.notes,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at,
+        dogs: dogsResult.rows.map(d => ({
+          id: d.id,
+          name: d.name,
+          breed: d.breed,
+          age: d.age,
+          issues: d.issues,
+        })),
+        activities: activitiesResult.rows.map(a => ({
+          id: a.id,
+          type: a.type,
+          description: a.description,
+          createdBy: a.created_by_first_name ? `${a.created_by_first_name} ${a.created_by_last_name}` : null,
+          createdAt: a.created_at,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Get lead error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error',
+      message: 'Failed to fetch lead.',
+    });
+  }
 });
 
 // PATCH /api/leads/:id - Update lead
-router.patch('/:id', (req: Request, res: Response) => {
-  const index = leads.findIndex(l => l.id === req.params.id);
-  
-  if (index === -1) {
-    return res.status(404).json({
-      success: false,
-      error: 'Lead not found',
-    });
-  }
-  
-  leads[index] = {
-    ...leads[index],
-    ...req.body,
-    updatedAt: new Date().toISOString(),
-  };
-  
-  res.json({
-    success: true,
-    data: leads[index],
-    message: 'Lead updated successfully',
-  });
-});
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, notes, phone, program } = req.body;
 
-// PATCH /api/leads/:id/status - Update lead status
-router.patch('/:id/status', (req: Request, res: Response) => {
-  const { status } = req.body;
-  const index = leads.findIndex(l => l.id === req.params.id);
-  
-  if (index === -1) {
-    return res.status(404).json({
-      success: false,
-      error: 'Lead not found',
-    });
-  }
-  
-  const oldStatus = leads[index].status;
-  leads[index] = {
-    ...leads[index],
-    status,
-    updatedAt: new Date().toISOString(),
-    activities: [
-      {
-        id: uuidv4(),
-        type: 'status_change',
-        description: `Status changed from ${oldStatus} to ${status}`,
-        createdAt: new Date().toISOString(),
-        createdBy: 'user',
-      },
-      ...leads[index].activities,
-    ],
-  };
-  
-  res.json({
-    success: true,
-    data: leads[index],
-    message: 'Status updated successfully',
-  });
-});
+    const updates: string[] = [];
+    const params: (string | null)[] = [];
+    let paramIndex = 1;
 
-// POST /api/leads/:id/notes - Add note to lead
-router.post('/:id/notes', (req: Request, res: Response) => {
-  const { content } = req.body;
-  const index = leads.findIndex(l => l.id === req.params.id);
-  
-  if (index === -1) {
-    return res.status(404).json({
+    if (status !== undefined) {
+      updates.push(`status = $${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+    }
+    if (notes !== undefined) {
+      updates.push(`notes = $${paramIndex}`);
+      params.push(notes);
+      paramIndex++;
+    }
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramIndex}`);
+      params.push(phone);
+      paramIndex++;
+    }
+    if (program !== undefined) {
+      updates.push(`program = $${paramIndex}`);
+      params.push(program);
+      paramIndex++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No updates provided',
+        message: 'Please provide fields to update.',
+      });
+    }
+
+    updates.push(`updated_at = NOW()`);
+    params.push(id as string);
+
+    const result = await pool.query(
+      `UPDATE leads SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not found',
+        message: 'Lead not found.',
+      });
+    }
+
+    const lead = result.rows[0];
+
+    res.json({
+      success: true,
+      data: {
+        id: lead.id,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        status: lead.status,
+        source: lead.source,
+        program: lead.program,
+        notes: lead.notes,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at,
+      },
+      message: 'Lead updated successfully.',
+    });
+  } catch (error) {
+    console.error('Update lead error:', error);
+    res.status(500).json({
       success: false,
-      error: 'Lead not found',
+      error: 'Server error',
+      message: 'Failed to update lead.',
     });
   }
-  
-  const note = {
-    id: uuidv4(),
-    leadId: req.params.id,
-    content,
-    createdAt: new Date().toISOString(),
-    createdBy: 'user',
-  };
-  
-  leads[index] = {
-    ...leads[index],
-    notes: [note, ...leads[index].notes],
-    activities: [
-      {
-        id: uuidv4(),
-        type: 'note_added',
-        description: 'Note added',
-        createdAt: new Date().toISOString(),
-        createdBy: 'user',
-      },
-      ...leads[index].activities,
-    ],
-    updatedAt: new Date().toISOString(),
-  };
-  
-  res.json({
-    success: true,
-    data: leads[index],
-    message: 'Note added successfully',
-  });
 });
 
 // DELETE /api/leads/:id - Delete lead
-router.delete('/:id', (req: Request, res: Response) => {
-  const index = leads.findIndex(l => l.id === req.params.id);
-  
-  if (index === -1) {
-    return res.status(404).json({
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      'DELETE FROM leads WHERE id = $1 RETURNING id',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not found',
+        message: 'Lead not found.',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Lead deleted successfully.',
+    });
+  } catch (error) {
+    console.error('Delete lead error:', error);
+    res.status(500).json({
       success: false,
-      error: 'Lead not found',
+      error: 'Server error',
+      message: 'Failed to delete lead.',
     });
   }
-  
-  leads.splice(index, 1);
-  
-  res.json({
-    success: true,
-    message: 'Lead deleted successfully',
-  });
 });
 
 export default router;

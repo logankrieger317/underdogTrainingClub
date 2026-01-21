@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Users, UserPlus, GraduationCap, TrendingUp, 
-  ArrowRight, Phone, Mail, Calendar 
+  ArrowRight, Phone, Mail, Calendar, LogOut, Home
 } from 'lucide-react';
 import { useLeadStore } from '../../store/leadStore';
 import { LeadStatus } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 
 const statusColors: Record<LeadStatus, string> = {
   new: 'bg-blue-100 text-blue-800',
@@ -77,6 +78,7 @@ const mockRecentLeads = [
 
 export function DashboardPage() {
   const { setStats } = useLeadStore();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     // In production, this would fetch from the API
@@ -92,6 +94,10 @@ export function DashboardPage() {
     });
   }, [setStats]);
 
+  const handleLogout = async () => {
+    await logout();
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -101,16 +107,32 @@ export function DashboardPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">CRM Dashboard</h1>
               <p className="text-sm text-gray-500">
-                Manage your leads and track training progress
+                Welcome back, {user?.firstName || 'Admin'}
               </p>
             </div>
-            <Link
-              to="/admin/leads/new"
-              className="btn-primary inline-flex items-center gap-2"
-            >
-              <UserPlus className="w-5 h-5" />
-              Add Lead
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                to="/"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <Home className="w-4 h-4" />
+                View Site
+              </Link>
+              <Link
+                to="/admin/leads/new"
+                className="btn-primary inline-flex items-center gap-2"
+              >
+                <UserPlus className="w-5 h-5" />
+                Add Lead
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>

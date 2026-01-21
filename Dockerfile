@@ -15,6 +15,9 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Copy schema.sql to dist folder for database initialization
+RUN mkdir -p server/dist/db && cp server/db/schema.sql server/dist/db/
+
 # Set production environment
 ENV NODE_ENV=production
 
